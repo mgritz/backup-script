@@ -1,0 +1,8 @@
+{
+    "nodes":
+    {
+        "/tmp/foo":"/tmp/bar",
+        "/tmp/joll":"/tmp/ett"
+    },
+    "excludes": [".thumbs"]
+}
