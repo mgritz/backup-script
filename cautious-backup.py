@@ -64,7 +64,36 @@ class OffSiteConnect:
             retval[src] = len(diff_files) - 1 # minus 1 for the first line break we always have.
         return retval
 
+    def countTargetFiles(self, sourceTargetMap, excludes):
+        '''
+        Counts files existing in target dirs
+        '''
+        retval = dict()
+        for src, tgt in sourceTargetMap.iteritems():
+            (rc, output) = syscmd('ssh {} ls -R1 {}'.format(self._login, tgt))
+            if rc != 0:
+                print(output)
+                print('Warning: cannot count files in {}:{}', format(
+                    self._login, tgt))
+                continue
 
+            # count lines excluding folder names and empty ones
+            cnt = 0
+            lines = output.split('\n')[1:]
+            for l in lines:
+                if l == '\n' or ':' in l:
+                    continue
+                excluded = False
+                for e in excludes:
+                    if str(e) in l:
+                        excluded = True
+                        break
+                if excluded:
+                    continue
+                cnt += 1
+
+            retval[src] = cnt # minus 1 for the first line break we always have.
+        return retval
 
     def rsyncUpdateRemote(self, sourceTargetMap, excludes):
         '''
@@ -105,4 +134,7 @@ args = ap.parse_args()
 osc = OffSiteConnect(args.connection)
 cf = BackupConfigFile(args.configfile)
 
+total = osc.countTargetFiles(cf.nodes(), cf.excludes())
+print(total)
 diffs = osc.rsyncProbeDifferences(cf.nodes(), cf.excludes())
+print(diffs)
