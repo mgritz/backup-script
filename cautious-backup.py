@@ -5,16 +5,19 @@ import argparse
 import json
 
 
-def syscmd(cmd, encoding=''):
+def syscmd(cmd, encoding='', showOutput=False):
     '''
     Executes a shell command and returns a tuple of return value
     and shell output.
     Derived from https://stackoverflow.com/questions/5596911/python-os-system-without-the-output
     '''
+    print('Issuing command $ {}'.format(cmd))
     p = subprocess.Popen(cmd, shell=True, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                          close_fds=True)
     p.wait()
     output = p.stdout.read()
+    if showOutput:
+        print(output)
     if len(output) > 1 and encoding:
         output = output.decode(encoding)
     return (p.returncode, output)
@@ -33,34 +36,62 @@ class OffSiteConnect:
                 self._address, rc))
             exit(1)
 
+    def _exclRsyncStr(self, excludes):
+        '''
+        Transfor an array of exclude files into an rsync-compatible exclude
+        string like "--exclude=/foo --exclude=/bar/baz" and so on.
+        '''
+        retval = ''
+        for e in excludes:
+            retval += '--exclude={} '.format(e)
+        return retval
+
     def rsyncProbeDifferences(self, sourceTargetMap, excludes):
         '''
         For the given map of sources to targets return the number of files that
         exist on both sides but are different.
         '''
         retval = dict()
-        for src, tgt in sourceTargetMap:
+        for src, tgt in sourceTargetMap.iteritems():
             (rc, output) = syscmd(
-                'rsync -rins --existing --exclude={} {} {}:{}'.format(excludes, src, self._login, tgt))
+                'rsync -rin --existing {} {}/ {}:{}'.format(self._exclRsyncStr(excludes), src, self._login, tgt))
             if rc != 0:
                 print(output)
                 print('Warning: cannot evaluate differences between {} and {}:{}', format(
                     src, self._login, tgt))
                 continue
-            retval[src] = len(output)
+            diff_files = output.split('\n')
+            retval[src] = len(diff_files) - 1 # minus 1 for the first line break we always have.
         return retval
+
+
 
     def rsyncUpdateRemote(self, sourceTargetMap, excludes):
         '''
         For the given map of sources to targets update the remote files using rsync.
         '''
-        for src, tgt in sourceTargetMap:
+        for src, tgt in sourceTargetMap.iteritems():
             (rc, output) = syscmd(
                 'rsync -arP --exclude={} {} {}:{}'.format(excludes, src, self._login, tgt))
             print(output)
             if rc != 0:
                 print('Warning: cannot rsync from {} to {}:{}',
                       format(src, self._login, tgt))
+
+
+class BackupConfigFile:
+    def __init__(self, configfile):
+        cf = open(args.configfile, 'r')
+        cf_json = json.load(cf)
+        cf.close()
+        self._nodes = cf_json['nodes']
+        self._excludes = cf_json['excludes']
+
+    def nodes(self):
+        return self._nodes
+
+    def excludes(self):
+        return self._excludes
 
 
 ########
@@ -72,6 +103,6 @@ ap.add_argument('-f', '--configfile', required=True,
 args = ap.parse_args()
 
 osc = OffSiteConnect(args.connection)
+cf = BackupConfigFile(args.configfile)
 
-configfile=json.load(args.configfile)
-diffs = osc.rsyncProbeDifferences(configfile, None)
+diffs = osc.rsyncProbeDifferences(cf.nodes(), cf.excludes())
